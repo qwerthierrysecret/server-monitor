@@ -298,13 +298,21 @@ func getMemoryMetrics() MemMetrics {
 		case "MemAvailable:":
 			mem.Available = value
 		case "Buffers:":
-			mem.Buffers = value * 1024
+			mem.Buffers = value
 		case "Cached:":
-			mem.Cached = value * 1024
+			mem.Cached = value
 		}
 	}
 
-	mem.Used = mem.Total - mem.Free
+	// Calculate used memory (excluding buffers/cache)
+	// Use Available if present, otherwise calculate manually
+	if mem.Available > 0 {
+		mem.Used = mem.Total - mem.Available
+	} else {
+		// Fallback: Total - Free - Buffers - Cached
+		mem.Used = mem.Total - mem.Free - mem.Buffers - mem.Cached
+	}
+	
 	return mem
 }
 
