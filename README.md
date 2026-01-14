@@ -36,14 +36,14 @@ O **Server Monitor** é dividido em duas partes principais:
 Em cada servidor Ubuntu que você deseja monitorar, execute:
 
 ```bash
-curl -fsSL https://your-domain.com/install.sh | sudo bash -s -- --port 8765 --password sua_senha_segura
+curl -fsSL https://raw.githubusercontent.com/qwerthierrysecret/server-monitor/main/scripts/install.sh | sudo bash -s -- --port 8765 --password sua_senha_segura
 ```
 
 Ou manualmente:
 
 ```bash
 # Clone o repositório
-git clone https://github.com/yourusername/server-monitor.git
+git clone https://github.com/qwerthierrysecret/server-monitor.git
 cd server-monitor/backend
 
 # Compile
