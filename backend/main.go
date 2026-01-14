@@ -31,13 +31,13 @@ type Configuration struct {
 
 // SystemMetrics holds all system metrics
 type SystemMetrics struct {
-	Timestamp   int64       `json:"timestamp"`
-	CPU         CPUMetrics  `json:"cpu"`
-	Memory      MemMetrics  `json:"memory"`
-	Disk        DiskMetrics `json:"disk"`
-	Processes   ProcMetrics `json:"processes"`
-	System      SysMetrics  `json:"system"`
-	Network     NetMetrics  `json:"network"`
+	Timestamp int64       `json:"timestamp"`
+	CPU       CPUMetrics  `json:"cpu"`
+	Memory    MemMetrics  `json:"memory"`
+	Disk      DiskMetrics `json:"disk"`
+	Processes ProcMetrics `json:"processes"`
+	System    SysMetrics  `json:"system"`
+	Network   NetMetrics  `json:"network"`
 }
 
 // CPUMetrics holds CPU information
@@ -99,7 +99,7 @@ type NetMetrics struct {
 // Message represents a WebSocket message
 type Message struct {
 	Type   string          `json:"type"`
-	Data   SystemMetrics   `json:"data,omitempty"`
+	Data   interface{}     `json:"data,omitempty"`
 	Error  string          `json:"error,omitempty"`
 	Status string          `json:"status,omitempty"`
 }
@@ -108,6 +108,20 @@ type Message struct {
 type AuthMessage struct {
 	Type     string `json:"type"`
 	Password string `json:"password"`
+}
+
+// HistoryRequest represents a request for historical data
+type HistoryRequest struct {
+	Type  string `json:"type"`
+	Range string `json:"range"` // "1h", "6h", "12h", "24h", "2d", "7d"
+}
+
+// HistoryData represents historical metrics
+type HistoryData struct {
+	Timestamp int64   `json:"timestamp"`
+	CPU       float64 `json:"cpu"`
+	Memory    float64 `json:"memory"`
+	Disk      float64 `json:"disk"`
 }
 
 // Client represents a connected WebSocket client
@@ -142,9 +156,12 @@ func main() {
 	flag.Parse()
 
 	// Ensure database directory exists
-	dbDir := config.DBPath[:strings.LastIndex(config.DBPath, "/")]
-	if err := os.MkdirAll(dbDir, 0755); err != nil {
-		log.Printf("Warning: Could not create database directory: %v", err)
+	lastSlash := strings.LastIndex(config.DBPath, "/")
+	if lastSlash != -1 {
+		dbDir := config.DBPath[:lastSlash]
+		if err := os.MkdirAll(dbDir, 0755); err != nil {
+			log.Printf("Warning: Could not create database directory: %v", err)
+		}
 	}
 
 	// Initialize database
@@ -252,20 +269,58 @@ func getSystemMetrics() SystemMetrics {
 	return metrics
 }
 
+var (
+	lastCPUTime   float64
+	lastTotalTime float64
+	cpuMu         sync.Mutex
+)
+
 func getCPUMetrics() CPUMetrics {
 	cpu := CPUMetrics{
 		Cores: runtime.NumCPU(),
 	}
 
+	// Read /proc/stat for accurate CPU usage
+	data, err := os.ReadFile("/proc/stat")
+	if err == nil {
+		lines := strings.Split(string(data), "\n")
+		if len(lines) > 0 && strings.HasPrefix(lines[0], "cpu ") {
+			fields := strings.Fields(lines[0])
+			if len(fields) >= 5 {
+				user, _ := strconv.ParseFloat(fields[1], 64)
+				nice, _ := strconv.ParseFloat(fields[2], 64)
+				system, _ := strconv.ParseFloat(fields[3], 64)
+				idle, _ := strconv.ParseFloat(fields[4], 64)
+				iowait, _ := strconv.ParseFloat(fields[5], 64)
+				irq, _ := strconv.ParseFloat(fields[6], 64)
+				softirq, _ := strconv.ParseFloat(fields[7], 64)
+
+				totalCPUTime := user + nice + system + irq + softirq
+				totalTime := totalCPUTime + idle + iowait
+
+				cpuMu.Lock()
+				if lastTotalTime > 0 {
+					deltaTotal := totalTime - lastTotalTime
+					deltaCPU := totalCPUTime - lastCPUTime
+					if deltaTotal > 0 {
+						cpu.UsagePercent = (deltaCPU / deltaTotal) * 100
+					}
+				}
+				lastCPUTime = totalCPUTime
+				lastTotalTime = totalTime
+				cpuMu.Unlock()
+			}
+		}
+	}
+
 	// Read load average
-	data, err := os.ReadFile("/proc/loadavg")
+	data, err = os.ReadFile("/proc/loadavg")
 	if err == nil {
 		parts := strings.Fields(string(data))
 		if len(parts) >= 3 {
 			cpu.LoadAvg1m, _ = strconv.ParseFloat(parts[0], 64)
 			cpu.LoadAvg5m, _ = strconv.ParseFloat(parts[1], 64)
 			cpu.LoadAvg15m, _ = strconv.ParseFloat(parts[2], 64)
-			cpu.UsagePercent = (cpu.LoadAvg1m / float64(cpu.Cores)) * 100
 		}
 	}
 
@@ -304,15 +359,12 @@ func getMemoryMetrics() MemMetrics {
 		}
 	}
 
-	// Calculate used memory (excluding buffers/cache)
-	// Use Available if present, otherwise calculate manually
 	if mem.Available > 0 {
 		mem.Used = mem.Total - mem.Available
 	} else {
-		// Fallback: Total - Free - Buffers - Cached
 		mem.Used = mem.Total - mem.Free - mem.Buffers - mem.Cached
 	}
-	
+
 	return mem
 }
 
@@ -321,7 +373,6 @@ func getDiskMetrics() DiskMetrics {
 		Mountpoint: make(map[string]Mounts),
 	}
 
-	// Get root filesystem usage
 	var stat syscall.Statfs_t
 	if err := syscall.Statfs("/", &stat); err == nil {
 		disk.Total = stat.Blocks * uint64(stat.Bsize)
@@ -345,7 +396,6 @@ func getDiskMetrics() DiskMetrics {
 func getProcessMetrics() ProcMetrics {
 	proc := ProcMetrics{}
 
-	// Count processes
 	entries, err := os.ReadDir("/proc")
 	if err != nil {
 		return proc
@@ -357,7 +407,6 @@ func getProcessMetrics() ProcMetrics {
 		}
 	}
 
-	// Read running processes from /proc/stat
 	data, err := os.ReadFile("/proc/stat")
 	if err == nil {
 		lines := strings.Split(string(data), "\n")
@@ -379,13 +428,11 @@ func getSystemInfo() SysMetrics {
 		Architecture: runtime.GOARCH,
 	}
 
-	// Get hostname
 	hostname, err := os.Hostname()
 	if err == nil {
 		sys.Hostname = hostname
 	}
 
-	// Get uptime
 	data, err := os.ReadFile("/proc/uptime")
 	if err == nil {
 		parts := strings.Fields(string(data))
@@ -395,7 +442,6 @@ func getSystemInfo() SysMetrics {
 		}
 	}
 
-	// Get kernel version
 	data, err = os.ReadFile("/proc/version")
 	if err == nil {
 		parts := strings.Fields(string(data))
@@ -454,7 +500,7 @@ func storeMetrics(db *sql.DB, metrics SystemMetrics) {
 func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	upgrader := websocket.Upgrader{
 		CheckOrigin: func(r *http.Request) bool {
-			return true // Allow all origins for now
+			return true
 		},
 	}
 
@@ -472,7 +518,6 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 	hub.register <- client
 
-	// Wait for authentication
 	go handleClientAuth(client)
 	go handleClientMessages(client)
 }
@@ -494,30 +539,25 @@ func handleClientAuth(client *Client) {
 		return
 	}
 
-	// Verify password
 	if hashPassword(authMsg.Password) == hashPassword(hub.password) {
 		client.Authorized = true
 		client.conn.SetReadDeadline(time.Time{})
 
-		// Send success message
-		response := Message{
+		client.send <- Message{
 			Type:   "auth",
 			Status: "success",
 		}
-		client.send <- response
 
-		// Send initial metrics
 		metrics := getSystemMetrics()
 		client.send <- Message{
 			Type: "metrics",
 			Data: metrics,
 		}
 	} else {
-		response := Message{
+		client.send <- Message{
 			Type:  "auth",
 			Error: "Invalid password",
 		}
-		client.send <- response
 	}
 }
 
@@ -527,11 +567,95 @@ func handleClientMessages(client *Client) {
 		client.conn.Close()
 	}()
 
-	for msg := range client.send {
-		if err := client.conn.WriteJSON(msg); err != nil {
-			log.Printf("Write error: %v", err)
-			return
+	for {
+		var rawMsg json.RawMessage
+		err := client.conn.ReadJSON(&rawMsg)
+		if err != nil {
+			break
 		}
+
+		var baseMsg struct {
+			Type string `json:"type"`
+		}
+		if err := json.Unmarshal(rawMsg, &baseMsg); err != nil {
+			continue
+		}
+
+		if baseMsg.Type == "history" && client.Authorized {
+			var req HistoryRequest
+			if err := json.Unmarshal(rawMsg, &req); err == nil {
+				handleHistoryRequest(client, req)
+			}
+		}
+	}
+}
+
+func handleHistoryRequest(client *Client, req HistoryRequest) {
+	duration := 1 * time.Hour
+	switch req.Range {
+	case "1h":
+		duration = 1 * time.Hour
+	case "6h":
+		duration = 6 * time.Hour
+	case "12h":
+		duration = 12 * time.Hour
+	case "24h":
+		duration = 24 * time.Hour
+	case "2d":
+		duration = 48 * time.Hour
+	case "7d":
+		duration = 168 * time.Hour
+	}
+
+	startTime := time.Now().Add(-duration).Unix()
+	
+	// Sample data to avoid sending too many points
+	// For 1h (720 points), send all
+	// For 7d (120,960 points), we need to aggregate
+	
+	var interval int
+	switch req.Range {
+	case "1h": interval = 1 // Every 5s
+	case "6h": interval = 6 // Every 30s
+	case "12h": interval = 12 // Every 1m
+	case "24h": interval = 24 // Every 2m
+	case "2d": interval = 48 // Every 4m
+	case "7d": interval = 168 // Every 14m
+	default: interval = 1
+	}
+
+	query := fmt.Sprintf(`
+		SELECT timestamp, cpu_percent, memory_percent, disk_percent 
+		FROM (
+			SELECT *, ROW_NUMBER() OVER (ORDER BY timestamp) as row_num 
+			FROM metrics 
+			WHERE timestamp >= ?
+		) 
+		WHERE row_num %% %d = 0
+		ORDER BY timestamp ASC
+	`, interval)
+
+	rows, err := hub.db.Query(query, startTime)
+	if err != nil {
+		log.Printf("History query error: %v", err)
+		return
+	}
+	defer rows.Close()
+
+	var history []HistoryData
+	for rows.Next() {
+		var d HistoryData
+		if err := rows.Scan(&d.Timestamp, &d.CPU, &d.Memory, &d.Disk); err == nil {
+			history = append(history, d)
+		}
+	}
+
+	client.send <- Message{
+		Type: "history",
+		Data: map[string]interface{}{
+			"range": req.Range,
+			"points": history,
+		},
 	}
 }
 
@@ -561,8 +685,7 @@ func (h *Hub) run() {
 					case client.send <- msg:
 					default:
 						// Client's send channel is full, close it
-						close(client.send)
-						delete(h.clients, client)
+						// We don't close here to avoid double close, unregister handles it
 					}
 				}
 			}
