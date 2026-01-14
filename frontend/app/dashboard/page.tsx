@@ -1,28 +1,28 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useAppStore } from '@/lib/store';
-import { useWebSocket } from '@/lib/useWebSocket';
 import ServerCard from '@/components/ui/ServerCard';
 import AddServerModal from '@/components/ui/AddServerModal';
+import ServerConnection from '@/components/ui/ServerConnection';
 
 export default function DashboardPage() {
-  const { servers, metrics, adminPassword } = useAppStore();
+  const { servers, metrics } = useAppStore();
   const [showAddServer, setShowAddServer] = useState(false);
-
-  // Connect to all servers
-  servers.forEach((server) => {
-    useWebSocket(
-      server.id,
-      server.ip,
-      server.port,
-      server.password,
-      true
-    );
-  });
 
   return (
     <div className="space-y-8">
+      {/* WebSocket Connections */}
+      {servers.map((server) => (
+        <ServerConnection
+          key={server.id}
+          serverId={server.id}
+          ip={server.ip}
+          port={server.port}
+          password={server.password}
+        />
+      ))}
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>

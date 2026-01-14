@@ -33,9 +33,9 @@ export const useWebSocket = (
         setServerOnline(serverId, true);
 
         // Send authentication
-        const authMsg: WebSocketMessage = {
+        const authMsg = {
           type: 'auth',
-          data: { password },
+          password: password,
         };
         wsRef.current?.send(JSON.stringify(authMsg));
       };
