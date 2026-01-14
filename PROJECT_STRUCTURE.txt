@@ -1,0 +1,29 @@
+.
+├── PROJECT_STRUCTURE.txt
+├── PROJECT_SUMMARY.md
+├── README.md
+├── backend
+│   ├── Makefile
+│   ├── go.mod
+│   ├── go.sum
+│   ├── main.go
+│   └── server-monitor-agent
+├── docs
+│   ├── ARCHITECTURE.md
+│   └── INSTALLATION.md
+├── frontend
+│   ├── app
+│   ├── components
+│   ├── lib
+│   ├── next.config.js
+│   ├── package-lock.json
+│   ├── package.json
+│   ├── postcss.config.js
+│   ├── public
+│   ├── tailwind.config.js
+│   └── tsconfig.json
+└── scripts
+    ├── install.sh
+    └── uninstall.sh
+
+8 directories, 18 files
