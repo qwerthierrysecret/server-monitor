@@ -46,6 +46,12 @@ export const useWebSocket = (
 
           if (message.type === 'metrics' && message.data) {
             setMetrics(serverId, message.data);
+          } else if (message.type === 'history' && message.data) {
+            // Handle history data (will be used in the detail page)
+            const event = new CustomEvent(`server-history-${serverId}`, { 
+              detail: message.data 
+            });
+            window.dispatchEvent(event);
           } else if (message.type === 'auth') {
             if (message.error) {
               console.error(`Auth failed for ${serverId}: ${message.error}`);
@@ -59,7 +65,10 @@ export const useWebSocket = (
       };
 
       wsRef.current.onerror = (error) => {
-        console.error(`WebSocket error for ${serverId}:`, error);
+        // Only log error if the connection is still supposed to be active
+        if (wsRef.current && wsRef.current.readyState !== WebSocket.CLOSED) {
+          console.error(`WebSocket error for ${serverId}:`, error);
+        }
         setServerOnline(serverId, false);
       };
 
