@@ -89,7 +89,7 @@ interface AppStore {
 
 export const useAppStore = create<AppStore>((set, get) => ({
   isAuthenticated: false,
-  adminPassword: '',
+  adminPassword: 'admin',
   servers: [],
   metrics: {},
 
@@ -152,9 +152,13 @@ export const useAppStore = create<AppStore>((set, get) => ({
       const data = JSON.parse(stored);
       set({
         isAuthenticated: data.isAuthenticated || false,
-        adminPassword: data.adminPassword || '',
+        adminPassword: data.adminPassword || 'admin',
         servers: data.servers || [],
       });
+    } else {
+      // First time - set default password
+      set({ adminPassword: 'admin' });
+      get().saveToLocalStorage();
     }
   },
 

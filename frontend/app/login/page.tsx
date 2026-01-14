@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAppStore } from '@/lib/store';
 
@@ -9,7 +9,11 @@ export default function LoginPage() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const router = useRouter();
-  const { setAuthenticated, setAdminPassword } = useAppStore();
+  const { setAuthenticated, adminPassword, loadFromLocalStorage } = useAppStore();
+
+  useEffect(() => {
+    loadFromLocalStorage();
+  }, [loadFromLocalStorage]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -17,15 +21,21 @@ export default function LoginPage() {
     setLoading(true);
 
     try {
-      // Simple authentication - in production, this should be more secure
-      if (password.length < 6) {
-        setError('Password must be at least 6 characters');
+      // Validate password
+      if (password.length === 0) {
+        setError('Please enter a password');
         setLoading(false);
         return;
       }
 
-      // Store password and mark as authenticated
-      setAdminPassword(password);
+      // Check if password matches the stored admin password
+      if (password !== adminPassword) {
+        setError('Invalid password');
+        setLoading(false);
+        return;
+      }
+
+      // Mark as authenticated
       setAuthenticated(true);
 
       // Redirect to dashboard
@@ -84,10 +94,14 @@ export default function LoginPage() {
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder="Enter your admin password"
+              placeholder="Enter admin password"
               className="w-full px-4 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
               disabled={loading}
+              autoFocus
             />
+            <p className="mt-2 text-xs text-gray-500">
+              Default password: <span className="text-blue-400 font-mono">admin</span>
+            </p>
           </div>
 
           <button
@@ -102,7 +116,7 @@ export default function LoginPage() {
         {/* Footer */}
         <div className="mt-8 text-center text-sm text-gray-500">
           <p>
-            Enter the admin password configured on your server agents
+            You can change the password in Settings after logging in
           </p>
         </div>
       </div>
